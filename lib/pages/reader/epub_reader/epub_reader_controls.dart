@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kover/generated/l10n/app_localizations.dart';
+import 'package:kover/pages/reader/epub_reader/theme_picker.dart';
 import 'package:kover/riverpod/providers/settings/common_reader_settings.dart';
 import 'package:kover/riverpod/providers/settings/epub_reader_settings.dart';
 import 'package:kover/utils/layout_constants.dart';
@@ -48,6 +49,7 @@ class EpubReaderSettingsBottomSheet extends ConsumerWidget {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       ReadDirectionOption(seriesId: seriesId),
+                      ThemePicker(seriesId: seriesId),
                       NumericOption(
                         title: l.fontSize,
                         icon: LucideIcons.aLargeSmallDir,
