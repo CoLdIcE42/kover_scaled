@@ -383,6 +383,9 @@ class _MeasureContent extends HookConsumerWidget {
       page: page,
     );
     final reflow = ref.watch(provider);
+    final css = ref.watch(
+      customCssProvider(seriesId: seriesId),
+    );
     final imageCache = useState(CachedImageFactory());
 
     return LayoutBuilder(
@@ -403,16 +406,17 @@ class _MeasureContent extends HookConsumerWidget {
           }
         });
 
-        return Async(
-          asyncValue: reflow,
-          data: (data) => Offstage(
+        return Async2(
+          asyncValue1: reflow,
+          asyncValue2: css,
+          data: (data, css) => Offstage(
             child: Column(
               mainAxisSize: .min,
               children: [
                 _RenderContent(
                   seriesId: seriesId,
                   key: key.value,
-                  styles: data.page.styles,
+                  styles: {...data.page.styles, ...css},
                   html: (data.buffer ?? DocumentFragment()).outerHtml,
                   imageCache: imageCache.value,
                 ),
@@ -480,6 +484,7 @@ class _RenderContent extends ConsumerWidget {
                 wordSpacing: epubSettings.wordSpacing,
                 letterSpacing: epubSettings.letterSpacing,
               ),
+              rebuildTriggers: [html, styles],
             ),
           ),
         ),
