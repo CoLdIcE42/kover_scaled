@@ -1,6 +1,8 @@
 import 'package:csslib/parser.dart' as css;
 import 'package:csslib/visitor.dart';
+import 'package:flutter_widget_from_html/flutter_widget_from_html.dart';
 import 'package:html/dom.dart';
+import 'package:html/dom_parsing.dart';
 import 'package:kover/utils/extensions/element.dart';
 import 'package:kover/utils/html_constants.dart';
 import 'package:kover/utils/logging.dart';
@@ -22,6 +24,7 @@ extension EpubPagePreprocessor on DocumentFragment {
     final elementMap = _matchRulesToElements(root, rules);
     _applyInlinedStyles(elementMap);
     _applyScrollIds(root);
+    _applyTextIndent(root);
 
     return root;
   }
@@ -93,6 +96,58 @@ extension EpubPagePreprocessor on DocumentFragment {
     for (final child in root.children) {
       walk(child);
     }
+  }
+
+  static void _applyTextIndent(DocumentFragment root) {
+    final visitor = _TextIndentVisitor();
+    visitor.visit(root);
+  }
+}
+
+class _TextIndentVisitor extends TreeVisitor {
+  static const blockElements = {
+    'div',
+    'p',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'li',
+  };
+
+  String? _inheritedTextIndent;
+
+  @override
+  void visitElement(Element element) {
+    final explicitTextIndent = element.styles
+        .where((s) => s.property == 'text-indent')
+        .firstOrNull
+        ?.value
+        ?.span
+        ?.text;
+
+    final currentTextIndent = explicitTextIndent ?? _inheritedTextIndent;
+
+    if (currentTextIndent != null &&
+        blockElements.contains(element.localName)) {
+      final span = Element.tag('span')
+        ..text =
+            '\u00A0' // Non-breaking space
+        ..attributes['style'] =
+            'display: inline-block; width: $currentTextIndent';
+
+      element.insertBefore(span, element.firstChild);
+    }
+
+    final previousInherited = _inheritedTextIndent;
+
+    _inheritedTextIndent = currentTextIndent;
+
+    super.visitElement(element);
+
+    _inheritedTextIndent = previousInherited;
   }
 }
 
