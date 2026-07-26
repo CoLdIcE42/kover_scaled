@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:kover/database/app_database.dart';
 import 'package:kover/database/dao/series_metadata_dao.dart';
 import 'package:kover/models/image_model.dart';
@@ -209,44 +211,14 @@ class SeriesRepository {
 
   /// Refresh all series and align the local library to the remote.
   /// Note: this deletes all series not present on the server anymore.
-  Future<void> refreshAllSeries() async {
-    final rows = await _db.seriesDao.allSeries().get();
+  Future<void> refreshAllSeries({
+    FutureOr<void> Function(int completed, int total)? onProgress,
+  }) async {
     final series = await _client.getAllSeries();
-    final seriesById = {for (final s in series) s.id.value: s};
-
-    final detailsToFetch = rows
-        .where(
-          (r) {
-            final companion = seriesById[r.id];
-            if (companion == null) {
-              return false;
-            }
-
-            final neverSynced = r.lastSynced == null;
-            final hasNewChapter =
-                companion.lastChapterAdded.value != null &&
-                (r.lastChapterAdded == null ||
-                    r.lastChapterAdded!.isBefore(
-                      companion.lastChapterAdded.value!,
-                    ));
-            final hasNewProgress =
-                companion.remoteLastRead.value != null &&
-                (r.remoteLastRead == null ||
-                    r.remoteLastRead!.isBefore(
-                      companion.remoteLastRead.value!,
-                    ));
-
-            return neverSynced || hasNewChapter || hasNewProgress;
-          },
-        )
-        .map((r) => r.id);
-
-    final newSeriesIds = seriesById.keys.toSet().difference(
-      rows.map((r) => r.id).toSet(),
+    await _db.seriesDao.mergeSeries(
+      series,
+      onProgress: onProgress,
     );
-
-    await refreshSeriesDetails([...detailsToFetch, ...newSeriesIds]);
-    await _db.seriesDao.mergeSeries(series);
   }
 
   /// Fetch missing metadata for all series

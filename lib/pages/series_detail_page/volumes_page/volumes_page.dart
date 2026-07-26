@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_context_menu/flutter_context_menu.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kover/generated/l10n/app_localizations.dart';
 import 'package:kover/models/enums/sort_direction.dart';
+import 'package:kover/riverpod/managers/sync_manager.dart';
 import 'package:kover/riverpod/providers/series.dart';
 import 'package:kover/utils/layout_constants.dart';
 import 'package:kover/widgets/cards/volume_card.dart';
@@ -23,7 +26,49 @@ class VolumesPage extends HookConsumerWidget {
     final hideRead = useState(false);
     final sortDirection = useState(SortDirection.ascending);
     final controller = useTextEditingController();
+    final detail = ref.watch(seriesDetailProvider(seriesId: seriesId));
+    final lazyLoadRequested = useRef(false);
+
+    final shouldLazyLoad = detail.maybeWhen(
+      data: (detailsData) =>
+          detailsData.volumes.isEmpty &&
+          detailsData.chapters.isEmpty &&
+          detailsData.specials.isEmpty &&
+          detailsData.storyline.isEmpty,
+      orElse: () => false,
+    );
+
+    useEffect(() {
+      if (!shouldLazyLoad || lazyLoadRequested.value) return null;
+
+      lazyLoadRequested.value = true;
+      ref
+          .read(syncManagerProvider.notifier)
+          .refreshMetadataAndDetails(
+            seriesId: seriesId,
+          );
+      return null;
+    }, [shouldLazyLoad, seriesId]);
+
+    final showLazyLoadSpinner = shouldLazyLoad && !lazyLoadRequested.value;
     useListenable(controller);
+
+    if (showLazyLoadSpinner) {
+      return Scaffold(
+        extendBody: true,
+        body: SafeArea(
+          bottom: false,
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar.large(title: Text(l.volumes)),
+              const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       extendBody: true,

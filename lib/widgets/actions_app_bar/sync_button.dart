@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -14,9 +16,20 @@ class SyncButton extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final syncState = ref.watch(syncManagerProvider);
     final isIdle = syncState is IdleState;
+    final isSyncing = syncState is SyncingState;
+    final syncRefreshTick = useState(0);
 
     final overlayController = useOverlayPortalController();
     final layerLink = useMemoized(LayerLink.new);
+
+    useEffect(() {
+      if (!isSyncing) return null;
+
+      final timer = Timer.periodic(const Duration(seconds: 5), (_) {
+        syncRefreshTick.value++;
+      });
+      return timer.cancel;
+    }, [isSyncing]);
 
     // Close the overlay when transitioning back to idle.
     ref.listen(syncManagerProvider, (_, next) {
@@ -28,7 +41,7 @@ class SyncButton extends HookConsumerWidget {
     final icon = syncState.when(
       idle: () =>
           const Icon(LucideIcons.refreshCw, size: LayoutConstants.smallIcon),
-      syncing: (_) => const Icon(
+      syncing: (_, _, _) => const Icon(
         LucideIcons.refreshCw,
         size: LayoutConstants.smallIcon,
       ).animate(onPlay: (c) => c.repeat()).rotate(duration: 1500.ms),
@@ -89,10 +102,16 @@ class SyncMenuOverlay extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final syncState = ref.watch(syncManagerProvider);
+    final summary = syncState.whenOrNull(
+      syncing: (_, completed, total) {
+        if (total <= 0) return null;
+        return 'Series $completed / $total';
+      },
+    );
 
     final entries =
         syncState.whenOrNull(
-          syncing: (phases) => [
+          syncing: (phases, _, _) => [
             for (final phase in phases)
               (
                 label: _phaseLabel(l, phase),
@@ -108,6 +127,17 @@ class SyncMenuOverlay extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (summary != null)
+              Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: LayoutConstants.smallPadding,
+                  vertical: LayoutConstants.smallPadding,
+                ),
+                child: Text(
+                  summary,
+                  style: Theme.of(context).textTheme.labelMedium,
+                ),
+              ),
             if (entries.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(

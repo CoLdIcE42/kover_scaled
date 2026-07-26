@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:drift/drift.dart';
 import 'package:kover/database/app_database.dart';
 import 'package:kover/database/dao/volumes_dao.dart';
@@ -426,16 +428,37 @@ class SeriesDao extends DatabaseAccessor<AppDatabase> with _$SeriesDaoMixin {
 
   /// Upsert series present or absent from the db and remove series not present
   /// in [entries]
-  Future<void> mergeSeries(Iterable<SeriesCompanion> entries) async {
-    final ids = entries.map((e) => e.id.value).toList();
+  Future<void> mergeSeries(
+    Iterable<SeriesCompanion> entries, {
+    FutureOr<void> Function(int completed, int total)? onProgress,
+  }) async {
+    final entriesList = entries.toList();
+    final ids = entriesList.map((e) => e.id.value).toSet();
+    final total = entriesList.length;
 
-    await batch((batch) {
-      batch.deleteWhere(
+    const chunkSize = 500;
+    for (var index = 0; index < entriesList.length; index += chunkSize) {
+      final end = (index + chunkSize < entriesList.length)
+          ? index + chunkSize
+          : entriesList.length;
+      final chunk = entriesList.sublist(index, end);
+
+      await upsertSeriesBatch(chunk);
+      await onProgress?.call(end, total);
+    }
+
+    final existingIds = await select(series).map((row) => row.id).get();
+    final obsoleteIds = existingIds.where((id) => !ids.contains(id)).toList();
+
+    for (var index = 0; index < obsoleteIds.length; index += chunkSize) {
+      final end = (index + chunkSize < obsoleteIds.length)
+          ? index + chunkSize
+          : obsoleteIds.length;
+      final chunk = obsoleteIds.sublist(index, end);
+      await (delete(
         series,
-        (s) => s.id.isNotIn(ids),
-      );
-      batch.insertAllOnConflictUpdate(series, entries);
-    });
+      )..where((s) => s.id.isIn(chunk))).go();
+    }
   }
 
   /// Upsert series details in [entry] and delete chapters and volumes not part

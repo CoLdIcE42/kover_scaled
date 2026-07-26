@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 import 'package:kover/riverpod/providers/auth.dart';
@@ -53,8 +55,11 @@ sealed class SyncPhase with _$SyncPhase {
 sealed class SyncState with _$SyncState {
   const factory SyncState.idle() = IdleState;
 
-  const factory SyncState.syncing({required Set<SyncPhase> phases}) =
-      SyncingState;
+  const factory SyncState.syncing({
+    required Set<SyncPhase> phases,
+    required int completed,
+    required int total,
+  }) = SyncingState;
 
   const factory SyncState.error({
     required SyncPhase phase,
@@ -68,8 +73,11 @@ class SyncManager extends _$SyncManager {
 
   bool _hasUser = false;
   bool _hasConnection = false;
+  bool _startupSyncQueued = false;
   final List<Set<SyncPhase>> _queuedPhases = [];
   final Set<SyncPhase> _runningPhases = {};
+  int _completedPhases = 0;
+  int _totalPhases = 0;
 
   SyncEngine get _engine {
     final seriesRepo = ref.read(seriesRepositoryProvider);
@@ -99,7 +107,11 @@ class SyncManager extends _$SyncManager {
 
   Future<void> Function() _getCallback(SyncPhase phase) => phase.when(
     allSeries: () =>
-        () async => await _engine.syncAllSeries(),
+    () async => await _engine.syncAllSeries(
+      onProgress: (completed, total) async {
+        _setSeriesProgress(completed, total);
+      },
+    ),
     metadata: () =>
         () async => await _engine.syncMetadata(),
     tocs: () =>
@@ -139,11 +151,14 @@ class SyncManager extends _$SyncManager {
     _listenConnectivity();
     _listenAppLifecycle();
 
+    _maybeQueueStartupSync();
+
     return const SyncState.idle();
   }
 
   /// Perform full sync with server
   Future<void> fullSync() async {
+    log.info('starting full sync');
     final settings = await ref.read(downloadSettingsProvider.future);
 
     _enqueuePhases({const .allSeries()});
@@ -160,6 +175,13 @@ class SyncManager extends _$SyncManager {
       const .sidenav(),
       if (settings.downloadCovers) const .covers(),
     });
+  }
+
+  void _maybeQueueStartupSync() {
+    if (_startupSyncQueued || !_hasUser || !_hasConnection) return;
+
+    _startupSyncQueued = true;
+    unawaited(fullSync());
   }
 
   /// Sync libraries
@@ -203,8 +225,31 @@ class SyncManager extends _$SyncManager {
           !_runningPhases.contains(phase) &&
           !_queuedPhases.any((queued) => queued.contains(phase)),
     );
-    _queuedPhases.add(missingPhases.toSet());
+    final missingPhasesSet = missingPhases.toSet();
+    if (missingPhasesSet.isEmpty) return;
+
+    _totalPhases += missingPhasesSet.length;
+    _queuedPhases.add(missingPhasesSet);
+
+    if (state is SyncingState) {
+      state = SyncState.syncing(
+        phases: Set.unmodifiable(_runningPhases),
+        completed: _completedPhases,
+        total: _totalPhases,
+      );
+    }
+
     _processQueue();
+  }
+
+  void _setSeriesProgress(int completed, int total) {
+    if (state is! SyncingState) return;
+
+    state = SyncState.syncing(
+      phases: Set.unmodifiable(_runningPhases),
+      completed: completed,
+      total: total,
+    );
   }
 
   Future<void> _processQueue() async {
@@ -226,6 +271,8 @@ class SyncManager extends _$SyncManager {
       );
     }
 
+    _completedPhases = 0;
+    _totalPhases = 0;
     state = const SyncState.idle();
   }
 
@@ -235,8 +282,13 @@ class SyncManager extends _$SyncManager {
   ) async {
     if (!_hasUser || !_hasConnection || _runningPhases.contains(phase)) return;
 
+    log.info('starting sync phase', attributes: {'phase': phase});
     _runningPhases.add(phase);
-    state = SyncState.syncing(phases: Set.unmodifiable(_runningPhases));
+    state = SyncState.syncing(
+      phases: Set.unmodifiable(_runningPhases),
+      completed: _completedPhases,
+      total: _totalPhases,
+    );
 
     var failed = false;
     try {
@@ -252,8 +304,14 @@ class SyncManager extends _$SyncManager {
       );
     } finally {
       _runningPhases.remove(phase);
+      _completedPhases += 1;
+      log.info('finished sync phase', attributes: {'phase': phase});
       if (!failed && _runningPhases.isNotEmpty) {
-        state = SyncState.syncing(phases: Set.unmodifiable(_runningPhases));
+        state = SyncState.syncing(
+          phases: Set.unmodifiable(_runningPhases),
+          completed: _completedPhases,
+          total: _totalPhases,
+        );
       }
     }
   }
@@ -262,6 +320,7 @@ class SyncManager extends _$SyncManager {
     ref.listen(currentUserProvider, (prev, next) async {
       _hasUser = next.hasValue;
       if (next.hasError) return;
+      _maybeQueueStartupSync();
       if (prev != null && next.hasValue && prev.value != next.value) {
         await fullSync();
       }
@@ -272,6 +331,7 @@ class SyncManager extends _$SyncManager {
     ref.listen(hasConnectionProvider, (prev, next) {
       next.whenData((good) async {
         _hasConnection = good;
+        _maybeQueueStartupSync();
 
         // skip update on first event as we are syncing already
         if (prev != null && good && good != prev.value) {
@@ -282,7 +342,17 @@ class SyncManager extends _$SyncManager {
   }
 
   void _listenAppLifecycle() {
-    final observer = LifecycleOnResumeObserver(onResume: fullSync);
+    var sawInitialResume = false;
+    final observer = LifecycleOnResumeObserver(
+      onResume: () {
+        if (!sawInitialResume) {
+          sawInitialResume = true;
+          return;
+        }
+
+        fullSync();
+      },
+    );
     WidgetsBinding.instance.addObserver(observer);
     ref.onDispose(() => WidgetsBinding.instance.removeObserver(observer));
   }

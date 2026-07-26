@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_context_menu/flutter_context_menu.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -5,6 +7,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kover/generated/l10n/app_localizations.dart';
 import 'package:kover/models/chapter_model.dart';
 import 'package:kover/models/enums/sort_direction.dart';
+import 'package:kover/riverpod/managers/sync_manager.dart';
 import 'package:kover/riverpod/providers/series.dart';
 import 'package:kover/utils/layout_constants.dart';
 import 'package:kover/widgets/context_menu/context_menu_button.dart';
@@ -23,6 +26,30 @@ class ChaptersPage extends HookConsumerWidget {
     final l = AppLocalizations.of(context);
     final hideRead = useState(false);
     final sortDirection = useState(SortDirection.ascending);
+    final detail = ref.watch(seriesDetailProvider(seriesId: seriesId));
+    final lazyLoadRequested = useRef(false);
+
+    final shouldLazyLoad = detail.maybeWhen(
+      data: (detailsData) =>
+          detailsData.volumes.isEmpty &&
+          detailsData.chapters.isEmpty &&
+          detailsData.specials.isEmpty &&
+          detailsData.storyline.isEmpty,
+      orElse: () => false,
+    );
+
+    useEffect(() {
+      if (!shouldLazyLoad || lazyLoadRequested.value) return null;
+
+      lazyLoadRequested.value = true;
+      ref
+          .read(syncManagerProvider.notifier)
+          .refreshMetadataAndDetails(
+            seriesId: seriesId,
+          );
+      return null;
+    }, [shouldLazyLoad, seriesId]);
+
     final chapters = ref.watch(
       seriesDetailProvider(
         seriesId: seriesId,
@@ -40,6 +67,25 @@ class ChaptersPage extends HookConsumerWidget {
             [];
       }),
     );
+
+    final showLazyLoadSpinner = shouldLazyLoad && !lazyLoadRequested.value;
+
+    if (showLazyLoadSpinner) {
+      return Scaffold(
+        extendBody: true,
+        body: SafeArea(
+          bottom: false,
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar.large(title: Text(l.chapters)),
+              const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     final toShow = sortDirection.value == .descending
         ? chapters.reversed.toList()
@@ -73,6 +119,47 @@ class StorylinePage extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final sortDirection = useState(SortDirection.ascending);
+    final detail = ref.watch(seriesDetailProvider(seriesId: seriesId));
+    final lazyLoadRequested = useRef(false);
+
+    final shouldLazyLoad = detail.maybeWhen(
+      data: (detailsData) =>
+          detailsData.volumes.isEmpty &&
+          detailsData.chapters.isEmpty &&
+          detailsData.specials.isEmpty &&
+          detailsData.storyline.isEmpty,
+      orElse: () => false,
+    );
+
+    useEffect(() {
+      if (!shouldLazyLoad || lazyLoadRequested.value) return null;
+
+      lazyLoadRequested.value = true;
+      ref
+          .read(syncManagerProvider.notifier)
+          .refreshMetadataAndDetails(
+            seriesId: seriesId,
+          );
+      return null;
+    }, [shouldLazyLoad, seriesId]);
+
+    if (shouldLazyLoad && !lazyLoadRequested.value) {
+      return Scaffold(
+        extendBody: true,
+        body: SafeArea(
+          bottom: false,
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar.large(title: Text(l.storyline)),
+              const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final chapters = ref.watch(
       seriesDetailProvider(
         seriesId: seriesId,
@@ -109,6 +196,47 @@ class SpecialsPage extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final sortDirection = useState(SortDirection.ascending);
+    final detail = ref.watch(seriesDetailProvider(seriesId: seriesId));
+    final lazyLoadRequested = useRef(false);
+
+    final shouldLazyLoad = detail.maybeWhen(
+      data: (detailsData) =>
+          detailsData.volumes.isEmpty &&
+          detailsData.chapters.isEmpty &&
+          detailsData.specials.isEmpty &&
+          detailsData.storyline.isEmpty,
+      orElse: () => false,
+    );
+
+    useEffect(() {
+      if (!shouldLazyLoad || lazyLoadRequested.value) return null;
+
+      lazyLoadRequested.value = true;
+      ref
+          .read(syncManagerProvider.notifier)
+          .refreshMetadataAndDetails(
+            seriesId: seriesId,
+          );
+      return null;
+    }, [shouldLazyLoad, seriesId]);
+
+    if (shouldLazyLoad && !lazyLoadRequested.value) {
+      return Scaffold(
+        extendBody: true,
+        body: SafeArea(
+          bottom: false,
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar.large(title: Text(l.specials)),
+              const SliverFillRemaining(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final chapters = ref.watch(
       seriesDetailProvider(
         seriesId: seriesId,

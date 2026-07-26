@@ -37,8 +37,12 @@ class SyncEngine {
     required this.readingListsRepo,
   });
 
-  Future<void> syncAllSeries() async {
-    await _pool.withResource(seriesRepo.refreshAllSeries);
+  Future<void> syncAllSeries({
+    Future<void> Function(int completed, int total)? onProgress,
+  }) async {
+    await _pool.withResource(
+      () => seriesRepo.refreshAllSeries(onProgress: onProgress),
+    );
     await _pool.withResource(seriesRepo.fetchMissingMetadata);
   }
 

@@ -1,8 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:kover/generated/l10n/app_localizations.dart';
 import 'package:kover/pages/menu_page/app_list_tile.dart';
 import 'package:kover/pages/series_detail_page/series_app_bar.dart';
+import 'package:kover/riverpod/managers/sync_manager.dart';
 import 'package:kover/riverpod/providers/router.dart';
 import 'package:kover/riverpod/providers/series.dart';
 import 'package:kover/utils/layout_constants.dart';
@@ -19,80 +23,112 @@ class SeriesDetailPage extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l = AppLocalizations.of(context);
     final details = ref.watch(seriesDetailProvider(seriesId: seriesId));
+    final lazyLoadRequested = useRef(false);
     final summary = ref.watch(
       seriesMetadataProvider(seriesId: seriesId).select(
         (value) => value.asData?.value.summary,
       ),
     );
 
-    return Scaffold(
-      body: Async(
-        asyncValue: details,
-        data: (detailsData) {
-          return CustomScrollView(
-            slivers: [
-              SeriesAppBar(seriesId: seriesId),
-              SliverPadding(
-                padding: const EdgeInsetsGeometry.only(
-                  top: LayoutConstants.mediumPadding,
-                  left: LayoutConstants.mediumPadding,
-                  right: LayoutConstants.mediumPadding,
-                ),
-                sliver: SliverToBoxAdapter(
-                  child: Column(
-                    spacing: LayoutConstants.smallPadding,
-                    crossAxisAlignment: .start,
-                    children: [
-                      if (detailsData.specials.isNotEmpty)
-                        AppListTile(
-                          title:
-                              '${l.specials} (${detailsData.specials.length})',
-                          onTap: () => SpecialsRoute(seriesId: seriesId).push(
-                            context,
-                          ),
-                        ),
-                      if (detailsData.storyline.isNotEmpty)
-                        AppListTile(
-                          title:
-                              '${l.storyline} (${detailsData.storyline.length})',
-                          onTap: () => StorylineRoute(
-                            seriesId: seriesId,
-                          ).push(context),
-                        ),
-                      if (detailsData.volumes.isNotEmpty)
-                        AppListTile(
-                          title: '${l.volumes} (${detailsData.volumes.length})',
-                          onTap: () =>
-                              VolumesRoute(seriesId: seriesId).push(context),
-                        ),
-                      if (detailsData.chapters.isNotEmpty)
-                        AppListTile(
-                          title:
-                              '${l.chapters} (${detailsData.chapters.length})',
-                          onTap: () =>
-                              ChaptersRoute(seriesId: seriesId).push(context),
-                        ),
-                      Summary(summary: summary),
-                      _Genres(seriesId: seriesId),
-                    ],
-                  ),
-                ),
-              ),
-              const SliverBottomPadding(),
-            ],
+    final shouldLazyLoad = details.maybeWhen(
+      data: (detailsData) =>
+          detailsData.volumes.isEmpty &&
+          detailsData.chapters.isEmpty &&
+          detailsData.specials.isEmpty &&
+          detailsData.storyline.isEmpty,
+      orElse: () => false,
+    );
+
+    useEffect(() {
+      if (!shouldLazyLoad || lazyLoadRequested.value) return null;
+
+      lazyLoadRequested.value = true;
+      ref
+          .read(syncManagerProvider.notifier)
+          .refreshMetadataAndDetails(
+            seriesId: seriesId,
           );
-        },
-        loading: () => CustomScrollView(
-          slivers: [
-            SeriesAppBar(
-              seriesId: seriesId,
+      return null;
+    }, [shouldLazyLoad, seriesId]);
+
+    final showLazyLoadSpinner = shouldLazyLoad && !lazyLoadRequested.value;
+
+    Widget buildLoadingView() {
+      return CustomScrollView(
+        slivers: [
+          SeriesAppBar(seriesId: seriesId),
+          const SliverFillRemaining(
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        ],
+      );
+    }
+
+    return Scaffold(
+      body: showLazyLoadSpinner
+          ? buildLoadingView()
+          : Async(
+              asyncValue: details,
+              data: (detailsData) {
+                return CustomScrollView(
+                  slivers: [
+                    SeriesAppBar(seriesId: seriesId),
+                    SliverPadding(
+                      padding: const EdgeInsetsGeometry.only(
+                        top: LayoutConstants.mediumPadding,
+                        left: LayoutConstants.mediumPadding,
+                        right: LayoutConstants.mediumPadding,
+                      ),
+                      sliver: SliverToBoxAdapter(
+                        child: Column(
+                          spacing: LayoutConstants.smallPadding,
+                          crossAxisAlignment: .start,
+                          children: [
+                            if (detailsData.specials.isNotEmpty)
+                              AppListTile(
+                                title:
+                                    '${l.specials} (${detailsData.specials.length})',
+                                onTap: () =>
+                                    SpecialsRoute(seriesId: seriesId).push(
+                                      context,
+                                    ),
+                              ),
+                            if (detailsData.storyline.isNotEmpty)
+                              AppListTile(
+                                title:
+                                    '${l.storyline} (${detailsData.storyline.length})',
+                                onTap: () => StorylineRoute(
+                                  seriesId: seriesId,
+                                ).push(context),
+                              ),
+                            if (detailsData.volumes.isNotEmpty)
+                              AppListTile(
+                                title:
+                                    '${l.volumes} (${detailsData.volumes.length})',
+                                onTap: () => VolumesRoute(
+                                  seriesId: seriesId,
+                                ).push(context),
+                              ),
+                            if (detailsData.chapters.isNotEmpty)
+                              AppListTile(
+                                title:
+                                    '${l.chapters} (${detailsData.chapters.length})',
+                                onTap: () => ChaptersRoute(
+                                  seriesId: seriesId,
+                                ).push(context),
+                              ),
+                            Summary(summary: summary),
+                            _Genres(seriesId: seriesId),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SliverBottomPadding(),
+                  ],
+                );
+              },
+              loading: buildLoadingView,
             ),
-            const SliverFillRemaining(
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
