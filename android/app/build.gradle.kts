@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rodonisi.kover.scaled"
+    namespace = "com.rodonisi.kover"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
