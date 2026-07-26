@@ -3,7 +3,7 @@
 
 # Kover
 
-## --This fork has been modified to make Kover usable for large libraries--
+## -- WIP: This fork has been modified to make Kover usable for large libraries--
 #
 -----------------------------------------------
 
